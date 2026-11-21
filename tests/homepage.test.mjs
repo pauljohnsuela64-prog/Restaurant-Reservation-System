@@ -22,13 +22,9 @@ test('all navigation and skip links resolve to page sections', () => {
   assert.match(html, /class="skip-link" href="#main"/)
 })
 
-test('reservation preview cannot submit or collect bookings', () => {
-  assert.match(html, /<fieldset disabled="" aria-describedby="reservation-note">/)
-  assert.match(html, /<label>Date<input type="date"/)
-  assert.match(html, /<label>Guests<select/)
-  assert.match(html, /<button[^>]*type="button" disabled=""/)
-  assert.match(html, /This demo cannot check availability or book a table/)
-  assert.match(html, /No information is collected or saved/)
-  assert.doesNotMatch(html, /<form\b/)
+test('reservation form clearly disclaims real bookings', () => {
+  assert.match(html, /Submitting does not create or confirm a booking/)
+  assert.match(html, /not verified availability/)
+  assert.match(html, /only in memory/)
 })
 
