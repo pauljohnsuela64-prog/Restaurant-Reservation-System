@@ -9,15 +9,19 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vite build --ssr src/App.tsx --outDir node_modules/.tmp/homepage-test && node --test tests/*.test.mjs",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "dev:api": "node --watch server/main.ts",
+    "start:api": "node server/main.ts"
   },
   "dependencies": {
+    "express": "^5.3.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.13",
+    "@types/express": "^5.0.6",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

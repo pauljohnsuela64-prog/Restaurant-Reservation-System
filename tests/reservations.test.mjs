@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { formatTime, localDateString, parseLocalDate, timeChoices, validateReservation } from '../src/reservations.ts'
 
-const now = new Date(2030, 0, 1, 12)
+const now = new Date(Date.UTC(2030, 0, 1, 4, 0))
 const valid = { name: 'Ada', email: 'ada@example.com', guests: '2', date: '2030-01-01', time: '17:00' }
 
 test('date parsing rejects impossible dates and preserves valid leap days without UTC conversion', () => {
@@ -10,11 +10,11 @@ test('date parsing rejects impossible dates and preserves valid leap days withou
     assert.equal(parseLocalDate(date), null, date)
   }
   const leapDay = parseLocalDate('2032-02-29')
-  assert.equal(leapDay.getFullYear(), 2032)
-  assert.equal(leapDay.getMonth(), 1)
-  assert.equal(leapDay.getDate(), 29)
-  assert.equal(localDateString(new Date(2030, 0, 1, 0, 5)), '2030-01-01')
-  assert.equal(localDateString(new Date(2030, 0, 1, 23, 55)), '2030-01-01')
+  assert.equal(leapDay.getUTCFullYear(), 2032)
+  assert.equal(leapDay.getUTCMonth(), 1)
+  assert.equal(leapDay.getUTCDate(), 29)
+  assert.equal(localDateString(new Date(Date.UTC(2030, 0, 1, -8, 5))), '2030-01-01')
+  assert.equal(localDateString(new Date(Date.UTC(2030, 0, 1, 15, 55))), '2030-01-01')
 })
 
 test('every weekday follows the published hours and excludes closing time', () => {
@@ -40,12 +40,12 @@ test('every weekday follows the published hours and excludes closing time', () =
 })
 
 test('today only offers future times and revalidates dates and times against the current clock', () => {
-  const evening = new Date(2030, 0, 1, 17, 30)
+  const evening = new Date(Date.UTC(2030, 0, 1, 9, 30))
   assert.equal(timeChoices('2030-01-01', evening)[0], '18:00')
   assert.ok(validateReservation(valid, evening).time)
-  assert.deepEqual(timeChoices('2030-01-01', new Date(2030, 0, 1, 21, 31)), [])
-  assert.ok(validateReservation(valid, new Date(2030, 0, 2, 0, 1)).date)
-  assert.ok(validateReservation({ ...valid, time: '21:30' }, new Date(2030, 0, 1, 22)).date)
+  assert.deepEqual(timeChoices('2030-01-01', new Date(Date.UTC(2030, 0, 1, 13, 31))), [])
+  assert.ok(validateReservation(valid, new Date(Date.UTC(2030, 0, 2, -8, 1))).date)
+  assert.ok(validateReservation({ ...valid, time: '21:30' }, new Date(Date.UTC(2030, 0, 1, 14, 0))).date)
 })
 
 test('rejects invalid and tampered fields while accepting valid party boundaries', () => {

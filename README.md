@@ -1,66 +1,30 @@
-﻿# Restaurant Reservation System — Phase 2
+﻿# Restaurant Reservation System - Phase 3
 
-A React + TypeScript + Vite homepage and interactive customer reservation demo for the fictional Ember & Olive restaurant. All restaurant details are demo content. Submitting displays a review summary only: it does not check availability, create a booking, or send a confirmation. There are no accounts, backend APIs, databases, or external services.
+A local React and Express demo for the fictional Ember & Olive restaurant. Use sample customer details. Requests are stored as pending. Sample times do not indicate availability, and a receipt never confirms a table.
 
-## Reservation form
+## Run locally
 
-Enter a customer name, email, 1–8 guests, date, and time. All fields are required. Whitespace-only names, malformed email addresses, invalid/past dates, Mondays, and times outside the illustrative choices are rejected. Error messages are linked to their fields; submission focuses the first invalid field. Valid submission focuses the review heading. You can edit your details or clear them.
+Use Node 24 and run npm.cmd install. Start npm.cmd run dev:api in one terminal and npm.cmd run dev in another. Open the Vite URL. Vite proxies /api to the Express server at 127.0.0.1:3001. For a production build smoke test, use npm.cmd run build and npm.cmd run preview with the API running.
 
-Time choices are every 30 minutes from opening until the last half hour before closing:
+The API creates data/reservations.sqlite by default. Set RESERVATION_DB in the API process environment to use another file. Keep it private and back it up before changing schema versions. The default data directory, SQLite files and environment files are ignored. The app does not put customer details in browser storage or request logs.
 
-- Monday: closed.
-- Tuesday–Thursday: 5 pm–9:30 pm (closes at 10 pm).
-- Friday–Saturday: noon–10:30 pm (closes at 11 pm).
-- Sunday: noon–8:30 pm (closes at 9 pm).
+## API and data
 
-These are **not verified availability**. Dates and times use the visitor's local clock because this fictional restaurant has no assigned timezone. Today is allowed only when a future sample time remains. Validation checks the clock again on submission, so a date or time that became past while the page was open is rejected. Changing the date clears the selected time. Guests are limited to 1–8 for this demo, not based on restaurant capacity.
+- GET /api/health checks SQLite and returns its status.
+- POST /api/reservation-requests accepts JSON with name, email, numeric guests (1-8), date (YYYY-MM-DD), and time (HH:mm). Invalid fields return 400, unsupported content types return 415, and oversized JSON returns 413. Success returns 201 with a UUID, a UTC createdAt timestamp, and pending status.
+- Opening hours and requested dates/times use Asia/Manila. Mondays are closed. The server validates the same 30-minute sample choices as the form, including rejection of elapsed times.
+- server/api.ts initializes SQLite using a transaction and PRAGMA user_version. It refuses unknown schema versions. createApi validates normalized input and inserts rows using bound SQL parameters. There is no request-list endpoint.
+- src/reservations.ts shares the schedule and validation between React and Express. ReservationForm.tsx reviews details in memory and sends them only on explicit action. It blocks repeat clicks during a request. If receipt cannot be verified, a manual retry may create a second request.
 
-Customer details stay in React state only. The app does not write them to browser storage, cookies, URLs, files, logs, or network requests. Clear details, reload, or unmount the page to discard them. Browser autofill is disabled on the form, although browsers control whether they honor that setting. Use fictional details when trying the demo.
+## Verification
 
-## Development
-
-Use Node 24 and npm. In PowerShell, use `npm.cmd` if script execution blocks `npm.ps1`.
-
-- `npm.cmd install` installs dependencies.
-- `npm.cmd run dev` starts the local development server.
-- `npm.cmd run lint` checks code with Oxlint.
-- `npm.cmd test` runs the component tests once.
-- `npm.cmd run typecheck` checks TypeScript without a production bundle.
-- `npm.cmd run build` checks TypeScript and builds to `dist/`.
-- `npm.cmd run preview` serves the production build locally.
-
-## Structure
-
-- `src/App.tsx`: homepage content and section composition.
-- `src/components/Layout.tsx`: header/navigation and footer.
-- `src/components/ReservationForm.tsx`: controlled inputs, validation errors, and review/edit/clear flow.
-- `src/components/FormField.tsx`: reusable label, control, and linked error layout.
-- `src/reservations.ts`: shared opening hours, local date/time helpers, and validation.
-- `src/index.css`: shared typography, colors, controls, and accessibility styles.
-- `src/App.css`: page layouts, responsive rules, and decorative CSS plate artwork.
-- `tests/homepage.test.mjs`: server-rendered homepage regression checks.
-- `tests/reservation-form.test.mjs`: real React interaction tests using Testing Library and jsdom.
-- `tests/reservations.test.mjs`: date, opening-hours, clock-boundary, and field-validation tests.
-- `tests/setup-dom.mjs`: DOM environment for interaction tests.
-- `src/main.tsx`: React entry point. `index.html` provides the document title and description.
-
-Components are reusable functions that return page markup. Controlled inputs take their values from React state, so editing, clearing, and review all use the same details. Pure validation functions return field errors without saving or sending anything. The homepage hours and form choices share one schedule to prevent them drifting apart.
-
-Original scaffold assets remain in place, unused. Phase 1 history is preserved. Phase 2 work is on `feat/phase-2-reservation-form` and is not committed.
+Run npm.cmd run lint, npm.cmd test, npm.cmd run typecheck, npm.cmd run build, and git diff --check. Tests exercise the real HTTP API against a temporary SQLite file and reopen it to check persistence. Frontend tests cover validation, explicit submission, unavailable API and repeat clicks.
 
 ## Manual acceptance
 
-1. Run the dev server and inspect at 1440, 768, 375, and 320 pixels wide; check wrapping, readability, and no horizontal scrolling.
-2. Use Tab and Enter: the skip link appears, focus is visible, and every navigation link reaches its section.
-3. Confirm one main heading, coherent section headings, and a named navigation region with a screen reader.
-4. Confirm the demo banner, fictional address/hours, and preview disclaimer are visible.
-5. Submit the empty form: errors appear, the name field receives focus, and no review appears. Verify whitespace-only names and malformed email addresses are rejected.
-6. Try a past date and Monday; both are rejected. Confirm Tuesday–Thursday evening hours, Friday/Saturday lunch-to-evening hours, and Sunday hours match the published schedule. Closing time itself is not offered.
-7. Choose a time, then change the date: the time clears. For today, elapsed times should not be offered; submission also rejects an elapsed selection if the page was left open.
-8. Fill valid fictional details and select a future time. Review shows all five fields, focuses its heading, and clearly states that nothing is booked or confirmed.
-9. Edit a reviewed detail and review again; verify the summary updates. Clear details and verify the form empties (guests return to 2). Reload while details are filled and verify they are gone.
-10. In browser developer tools, verify submitting creates no network request and adds no customer data to storage or the URL. Repeat at mobile widths and on the production preview; inspect the console for errors.
-
-Learning summary: controlled inputs keep form values in React state; pure validation makes edge cases easy to test; linked errors and intentional focus movement help keyboard and screen-reader users recover from mistakes. A review summary is not a booking confirmation.
-
-
+1. Start both processes. Open /api/health through Vite and verify status ok.
+2. At desktop and mobile widths, keyboard through the form. Try an invalid email, past Manila date and Monday. Check error text and focus.
+3. Enter fictional details and review them. Verify no POST appears in browser Network until Send reservation request.
+4. Send and verify one POST, a pending receipt and a reference. Verify no booking confirmation or availability claim and no browser storage entry.
+5. Stop the API and send a new sample request. Verify an error appears and the review remains available. Restart the API and try again.
+6. Restart with the same database path. Inspect the prior pending row in SQLite locally and verify GET /api/reservation-requests still returns 404.

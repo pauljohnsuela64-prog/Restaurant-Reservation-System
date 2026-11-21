@@ -10,6 +10,40 @@ export function ReservationForm() {
   const [details, setDetails] = useState<ReservationDetails>(emptyDetails)
   const [errors, setErrors] = useState<ReservationErrors>({})
   const [reviewing, setReviewing] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [receipt, setReceipt] = useState('')
+  const [submitError, setSubmitError] = useState('')
+  const inFlight = useRef(false)
+
+  async function submitRequest() {
+    if (inFlight.current || receipt) return
+    inFlight.current = true
+    setSending(true)
+    setSubmitError('')
+    try {
+      const response = await fetch('/api/reservation-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...details, guests: Number(details.guests) }),
+        signal: AbortSignal.timeout(10000),
+      })
+      if (!response.ok) {
+        setSubmitError(response.status === 400
+          ? 'The server rejected these details. Edit them and check the date and time.'
+          : 'The server could not process the request. Try again later.')
+        return
+      }
+      const result = await response.json()
+      if (response.status !== 201 || typeof result.id !== 'string' || result.status !== 'pending') throw new Error()
+      setReceipt(result.id)
+      setDetails(emptyDetails)
+    } catch {
+      setSubmitError('Could not verify receipt. Check that the local API is running. Retrying may create another request.')
+    } finally {
+      inFlight.current = false
+      setSending(false)
+    }
+  }
   const nameRef = useRef<HTMLInputElement>(null)
   const reviewRef = useRef<HTMLHeadingElement>(null)
   const hasReviewed = useRef(false)
@@ -57,6 +91,7 @@ export function ReservationForm() {
   }
 
   function clear() {
+    setSubmitError('')
     setDetails(emptyDetails)
     setErrors({})
     setReviewing(false)
@@ -70,7 +105,7 @@ export function ReservationForm() {
       ? 'Choose a date to see illustrative times.'
       : !choices.length
         ? 'No illustrative times remain for this date. Choose another date.'
-        : '30-minute sample choices, not verified availability. Times use your local clock.'
+        : '30-minute sample choices, not verified availability. Times use Manila time.'
 
   return (
     <section id="reservations" className="reservation-section" aria-labelledby="reservation-heading">
@@ -81,8 +116,13 @@ export function ReservationForm() {
       </div>
       <div className="reservation-preview">
         <span className="status">Demo only · No booking is made</span>
-        <p id="reservation-note">Details stay only in memory while this page is open. Nothing is saved or sent. Clear details or reload to discard them.</p>
-        {reviewing ? (
+        <p id="reservation-note">Use fictional details. Reviewing keeps details only in memory. Sending a request saves them to the local demo database.</p>
+        {receipt ? (
+          <div>
+            <p role="status">Request received. Its status is pending. No table has been booked or confirmed. Reference: {receipt}</p>
+            <button className="button" type="button" onClick={() => { setReceipt(''); clear() }}>Start another request</button>
+          </div>
+        ) : reviewing ? (
           <section aria-labelledby="review-heading" className="reservation-review">
             <h3 id="review-heading" tabIndex={-1} ref={reviewRef}>Review your details</h3>
             <p>No booking has been created or confirmed. Availability has not been checked.</p>
@@ -90,13 +130,16 @@ export function ReservationForm() {
               <div><dt>Customer name</dt><dd>{details.name}</dd></div>
               <div><dt>Email</dt><dd>{details.email}</dd></div>
               <div><dt>Guests</dt><dd>{details.guests} {details.guests === '1' ? 'guest' : 'guests'}</dd></div>
-              <div><dt>Date</dt><dd>{selectedDate?.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</dd></div>
-              <div><dt>Time (local)</dt><dd>{formatTime(details.time)}</dd></div>
+              <div><dt>Date</dt><dd>{selectedDate?.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })}</dd></div>
+              <div><dt>Time (Manila)</dt><dd>{formatTime(details.time)}</dd></div>
             </dl>
             <div className="form-actions">
-              <button className="button" type="button" onClick={() => setReviewing(false)}>Edit details</button>
-              <button className="secondary-button" type="button" onClick={clear}>Clear details</button>
+              <button className="button" type="button" disabled={sending} onClick={submitRequest}>Send reservation request</button>
+              <button className="secondary-button" type="button" disabled={sending} onClick={() => { setSubmitError(''); setReviewing(false) }}>Edit details</button>
+              <button className="secondary-button" type="button" disabled={sending} onClick={clear}>Clear details</button>
             </div>
+            {sending && <p role="status">Sending request...</p>}
+            {submitError && <p role="alert" className="field-error">{submitError}</p>}
           </section>
         ) : (
           <form noValidate autoComplete="off" onSubmit={review} aria-describedby="reservation-note">
