@@ -111,3 +111,30 @@ test('valid details show an unconfirmed review, can be edited, and can be cleare
   assert.equal(window.localStorage.length, 0)
   assert.equal(window.sessionStorage.length, 0)
 })
+
+test('explicit send handles an unavailable API, suppresses repeat clicks and shows a pending receipt', async context => {
+  const user = userEvent.setup()
+  let complete
+  let attempts = 0
+  const request = context.mock.method(globalThis, 'fetch', async () => {
+    if (++attempts === 1) throw new TypeError('offline')
+    return new Promise(resolve => { complete = resolve })
+  })
+  render(createElement(App))
+  await user.type(screen.getByLabelText('Customer name'), 'Demo Guest')
+  await user.type(screen.getByLabelText('Email'), 'demo@example.com')
+  selectDate(futureDate(2))
+  await user.selectOptions(screen.getByLabelText('Time'), '17:30')
+  await user.click(screen.getByRole('button', { name: 'Review details' }))
+  const send = screen.getByRole('button', { name: 'Send reservation request' })
+  assert.equal(request.mock.callCount(), 0)
+  await user.click(send)
+  assert.match((await screen.findByRole('alert')).textContent, /Could not verify receipt/)
+  await user.dblClick(send)
+  assert.equal(request.mock.callCount(), 2)
+  assert.equal(send.disabled, true)
+  assert.equal(JSON.parse(request.mock.calls[1].arguments[1].body).guests, 2)
+  complete(new Response(JSON.stringify({ id: 'demo-reference', status: 'pending' }), { status: 201 }))
+  assert.match((await screen.findByText(/Request received/)).textContent, /No table has been booked or confirmed/)
+  assert.equal(screen.queryByText('demo@example.com'), null)
+})
