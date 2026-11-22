@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
 import type { DatabaseSync } from 'node:sqlite'
-import { assignTable } from './tables.ts'
+import { assignTable, cancelRequest } from './tables.ts'
 
 const cookie = '__Host-restaurant-admin'
 const cookieOptions = { httpOnly: true, secure: true, sameSite: 'strict' as const, path: '/' }
@@ -89,12 +89,23 @@ export function adminRouter(db: DatabaseSync, clock: () => Date) {
     db.prepare('DELETE FROM admin_sessions WHERE digest=?').run(res.locals.sessionDigest)
     res.clearCookie(cookie, cookieOptions).sendStatus(204)
   })
-  router.get('/requests', (_req, res) => {
-    res.json(db.prepare(`SELECT r.id,r.name,r.email,r.guests,r.date,r.time,
-      CASE WHEN a.table_id IS NULL THEN 'pending' ELSE 'confirmed' END AS status,
-      t.id AS tableId,t.capacity FROM reservation_requests r
-      LEFT JOIN assignments a ON a.request_id=r.id LEFT JOIN dining_tables t ON t.id=a.table_id
-      ORDER BY r.date,r.time,r.created_at,r.id`).all())
+  router.get('/requests', (req, res) => {
+    const { status = '', q = '' } = req.query
+    if (typeof status !== 'string' || !['', 'pending', 'confirmed', 'cancelled'].includes(status)
+      || typeof q !== 'string' || q.length > 254) {
+      res.sendStatus(400)
+      return
+    }
+    const search = q.trim().toLowerCase()
+    res.json(db.prepare(`SELECT id,name,email,guests,date,time,cancelledAt,status,tableId,capacity FROM (
+      SELECT r.id,r.name,r.email,r.guests,r.date,r.time,
+      r.cancelled_at AS cancelledAt,
+      CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN a.table_id IS NULL THEN 'pending' ELSE 'confirmed' END AS status,
+      t.id AS tableId,t.capacity,r.created_at AS createdAt FROM reservation_requests r
+      LEFT JOIN assignments a ON a.request_id=r.id LEFT JOIN dining_tables t ON t.id=a.table_id)
+      WHERE (? = '' OR status = ?)
+        AND (? = '' OR instr(lower(name), ?) OR instr(lower(email), ?) OR instr(lower(id), ?))
+      ORDER BY date,time,createdAt,id`).all(status, status, search, search, search, search))
   })
   router.post('/requests/:id/confirm', (req, res) => {
     if (!db.prepare('SELECT 1 FROM reservation_requests WHERE id=?').get(req.params.id)) {
@@ -104,6 +115,11 @@ export function adminRouter(db: DatabaseSync, clock: () => Date) {
     const tableId = assignTable(db, req.params.id, clock)
     if (tableId === null) res.sendStatus(409)
     else res.json({ status: 'confirmed', tableId })
+  })
+  router.post('/requests/:id/cancel', (req, res) => {
+    const cancelledAt = cancelRequest(db, req.params.id, clock)
+    if (cancelledAt === null) res.sendStatus(404)
+    else res.json({ status: 'cancelled', cancelledAt })
   })
   return router
 }
