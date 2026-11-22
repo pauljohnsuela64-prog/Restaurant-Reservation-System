@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { FormField } from './FormField'
-import { formatTime, localDateString, parseLocalDate, timeChoices, validateReservation } from '../reservations'
+import { formatTime, localDateString, parseLocalDate, validateReservation } from '../reservations'
 import type { ReservationDetails, ReservationErrors } from '../reservations'
 
 const emptyDetails: ReservationDetails = { name: '', email: '', guests: '2', date: '', time: '' }
@@ -15,16 +15,44 @@ export function ReservationForm() {
   const [submitError, setSubmitError] = useState('')
   const inFlight = useRef(false)
 
+  const retry = useRef({ body: '', key: '' })
+  const query = new URLSearchParams({ date: details.date, guests: details.guests }).toString()
+  const [result, setResult] = useState<{ query: string, times: string[], failed?: boolean }>()
+  const [refresh, setRefresh] = useState(0)
+  const selectedDate = parseLocalDate(details.date)
+  const lookup = !!selectedDate && details.date >= localDateString() && selectedDate.getUTCDay() !== 1
+  useEffect(() => {
+    if (!lookup) return
+    const controller = new AbortController()
+    async function load() {
+      try {
+        const response = await fetch('/api/availability?' + query, {
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
+        })
+        if (!response.ok) throw new Error()
+        const { times } = await response.json()
+        if (!Array.isArray(times) || !times.every(time => typeof time === 'string')) throw new Error()
+        if (!controller.signal.aborted) setResult({ query, times })
+      } catch {
+        if (!controller.signal.aborted) setResult({ query, times: [], failed: true })
+      }
+    }
+    void load()
+    return () => controller.abort()
+  }, [lookup, query, refresh])
+
   async function submitRequest() {
     if (inFlight.current || receipt) return
     inFlight.current = true
     setSending(true)
     setSubmitError('')
     try {
+      const body = JSON.stringify({ ...details, guests: Number(details.guests) })
+      if (retry.current.body !== body) retry.current = { body, key: crypto.randomUUID() }
       const response = await fetch('/api/reservation-requests', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...details, guests: Number(details.guests) }),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': retry.current.key },
+        body,
         signal: AbortSignal.timeout(10000),
       })
       if (!response.ok) {
@@ -38,7 +66,7 @@ export function ReservationForm() {
       setReceipt(result.id)
       setDetails(emptyDetails)
     } catch {
-      setSubmitError('Could not verify receipt. Check that the local API is running. Retrying may create another request.')
+      setSubmitError('Could not verify receipt. Check that the local API is running. You can retry these details safely.')
     } finally {
       inFlight.current = false
       setSending(false)
@@ -47,7 +75,8 @@ export function ReservationForm() {
   const nameRef = useRef<HTMLInputElement>(null)
   const reviewRef = useRef<HTMLHeadingElement>(null)
   const hasReviewed = useRef(false)
-  const choices = timeChoices(details.date)
+  const current = lookup && result?.query === query ? result : undefined
+  const choices = current?.times ?? []
 
   useEffect(() => {
     if (reviewing) {
@@ -69,8 +98,9 @@ export function ReservationForm() {
       'aria-describedby': [field === 'time' ? 'reservation-time-hint' : '', errors[field] ? `${id}-error` : ''].filter(Boolean).join(' ') || undefined,
       onChange(event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
         const value = event.target.value
-        setDetails(previous => ({ ...previous, [field]: value, ...(field === 'date' ? { time: '' } : {}) }))
-        setErrors(previous => ({ ...previous, [field]: undefined, ...(field === 'date' ? { time: undefined } : {}) }))
+        if (field === 'date' || field === 'guests') setResult(undefined)
+        setDetails(previous => ({ ...previous, [field]: value, ...(field === 'date' || field === 'guests' ? { time: '' } : {}) }))
+        setErrors(previous => ({ ...previous, [field]: undefined, ...(field === 'date' || field === 'guests' ? { time: undefined } : {}) }))
       },
     }
   }
@@ -79,6 +109,7 @@ export function ReservationForm() {
     event.preventDefault()
     // Recheck the clock on submit, including when the page has been open overnight.
     const nextErrors = validateReservation(details)
+    if (!choices.includes(details.time)) nextErrors.time = 'Choose an available time.'
     setErrors(nextErrors)
     const firstError = Object.keys(nextErrors)[0]
     if (firstError) {
@@ -91,6 +122,8 @@ export function ReservationForm() {
   }
 
   function clear() {
+    retry.current = { body: '', key: '' }
+    setResult(undefined)
     setSubmitError('')
     setDetails(emptyDetails)
     setErrors({})
@@ -98,21 +131,19 @@ export function ReservationForm() {
     nameRef.current?.focus()
   }
 
-  const selectedDate = parseLocalDate(details.date)
-  const timeHint = selectedDate?.getDay() === 1
-    ? 'Closed on Mondays. Choose another date.'
-    : !details.date
-      ? 'Choose a date to see illustrative times.'
-      : !choices.length
-        ? 'No illustrative times remain for this date. Choose another date.'
-        : '30-minute sample choices, not verified availability. Times use Manila time.'
+  const timeHint = selectedDate?.getUTCDay() === 1 ? 'Closed on Mondays. Choose another date.'
+    : !lookup ? 'Choose today or a future date to see available times.'
+    : !current ? 'Checking availability...'
+    : current.failed ? 'Could not load availability.'
+    : !choices.length ? 'No available times. Choose another date or party size.'
+    : 'Available start times in Manila. Each visit lasts one hour.'
 
   return (
     <section id="reservations" className="reservation-section" aria-labelledby="reservation-heading">
       <div>
         <h2 id="reservation-heading">A seat at our table.</h2>
         <p>Long lunches, quiet celebrations, and evenings that take their time. There’s room for every occasion.</p>
-        <p className="demo-note">Try the demo with sample details. Submitting does not create or confirm a booking. Times are illustrative, not verified availability.</p>
+        <p className="demo-note">Try the demo with sample details. Submitting does not create or confirm a booking. Availability can change before confirmation.</p>
       </div>
       <div className="reservation-preview">
         <span className="status">Demo only · No booking is made</span>
@@ -125,7 +156,7 @@ export function ReservationForm() {
         ) : reviewing ? (
           <section aria-labelledby="review-heading" className="reservation-review">
             <h3 id="review-heading" tabIndex={-1} ref={reviewRef}>Review your details</h3>
-            <p>No booking has been created or confirmed. Availability has not been checked.</p>
+            <p>No booking has been created or confirmed. Your selected time is not held.</p>
             <dl>
               <div><dt>Customer name</dt><dd>{details.name}</dd></div>
               <div><dt>Email</dt><dd>{details.email}</dd></div>
@@ -169,6 +200,7 @@ export function ReservationForm() {
                   {choices.map(time => <option key={time} value={time}>{formatTime(time)}</option>)}
                 </select>
                 <p id="reservation-time-hint" className="small-print" role="status">{timeHint}</p>
+                {current?.failed && <button type="button" className="secondary-button" onClick={() => { setResult(undefined); setRefresh(value => value + 1) }}>Retry availability</button>}
               </FormField>
             </div>
             <div className="form-actions">

@@ -2,12 +2,13 @@
 import type { ErrorRequestHandler } from 'express'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
-import { validateReservation } from '../src/reservations.ts'
+import { availability } from './tables.ts'
+import { localDateString, parseLocalDate, validateReservation } from '../src/reservations.ts'
 
 export function openDatabase(path: string) {
   const db = new DatabaseSync(path)
   try {
-    db.exec('BEGIN IMMEDIATE')
+    db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; BEGIN IMMEDIATE')
     const version = db.prepare('PRAGMA user_version').get()?.user_version
     if (version === 0) {
       db.exec(`
@@ -19,8 +20,23 @@ export function openDatabase(path: string) {
         ) STRICT;
         PRAGMA user_version = 1;
       `)
-    } else if (version !== 1) {
+    } else if (version !== 1 && version !== 2) {
       throw new Error('Unsupported reservation database schema')
+    }
+    if (version !== 2) {
+      db.exec(`
+        ALTER TABLE reservation_requests ADD COLUMN retry_key TEXT;
+        CREATE UNIQUE INDEX request_retry ON reservation_requests(retry_key);
+        CREATE TABLE dining_tables (id INTEGER PRIMARY KEY, capacity INTEGER NOT NULL CHECK(capacity BETWEEN 1 AND 8)) STRICT;
+        INSERT INTO dining_tables VALUES (1,2),(2,4),(3,6),(4,8);
+        CREATE TABLE assignments (
+          request_id TEXT PRIMARY KEY REFERENCES reservation_requests(id),
+          table_id INTEGER NOT NULL REFERENCES dining_tables(id),
+          date TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL CHECK(end > start)
+        ) STRICT;
+        CREATE INDEX assignment_schedule ON assignments(date,table_id,start,end);
+        PRAGMA user_version = 2;
+      `)
     }
     db.exec('COMMIT')
     return db
@@ -38,9 +54,20 @@ export function createApi(db: DatabaseSync, clock = () => new Date()) {
     db.prepare('SELECT 1').get()
     res.json({ status: 'ok' })
   })
+  app.get('/api/availability', (req, res) => {
+    const { date, guests } = req.query
+    const now = clock()
+    res.set('Cache-Control', 'no-store')
+    if (typeof date !== 'string' || !parseLocalDate(date) || date < localDateString(now)
+      || typeof guests !== 'string' || !/^[1-8]$/.test(guests)) {
+      res.status(400).json({ error: 'Choose a valid date and 1 to 8 guests.' })
+      return
+    }
+    res.json({ times: availability(db, date, Number(guests), now) })
+  })
   const insert = db.prepare(`
-    INSERT INTO reservation_requests (id, name, email, guests, date, time, created_at, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+    INSERT INTO reservation_requests (id, name, email, guests, date, time, created_at, status, retry_key)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
   `)
   app.post('/api/reservation-requests', (req, res) => {
     if (!req.is('application/json')) {
@@ -56,15 +83,37 @@ export function createApi(db: DatabaseSync, clock = () => new Date()) {
       time: typeof time === 'string' ? time.trim() : '',
     }
     const now = clock()
-    const fields = validateReservation(details, now)
-    if (Object.keys(fields).length) {
-      res.status(400).json({ error: 'Check your reservation details.', fields })
+    const key = req.get('Idempotency-Key') ?? null
+    if (key !== null && !/^[A-Za-z0-9_-]{1,128}$/.test(key)) {
+      res.status(400).json({ error: 'Invalid idempotency key.' })
       return
     }
-    const id = randomUUID()
-    const createdAt = now.toISOString()
-    insert.run(id, details.name, details.email, Number(details.guests), details.date, details.time, createdAt)
-    res.status(201).json({ id, createdAt, status: 'pending' })
+    db.exec('BEGIN IMMEDIATE')
+    try {
+      const prior = key && db.prepare('SELECT * FROM reservation_requests WHERE retry_key = ?').get(key)
+      if (prior) {
+        const same = prior.name === details.name && prior.email === details.email
+          && prior.guests === Number(details.guests) && prior.date === details.date && prior.time === details.time
+        db.exec('COMMIT')
+        if (same) res.status(201).json({ id: prior.id, createdAt: prior.created_at, status: 'pending' })
+        else res.status(409).json({ error: 'This key was used for different details.' })
+        return
+      }
+      const fields = validateReservation(details, now)
+      if (Object.keys(fields).length) {
+        db.exec('ROLLBACK')
+        res.status(400).json({ error: 'Check your reservation details.', fields })
+        return
+      }
+      const id = randomUUID()
+      const createdAt = now.toISOString()
+      insert.run(id, details.name, details.email, Number(details.guests), details.date, details.time, createdAt, key)
+      db.exec('COMMIT')
+      res.status(201).json({ id, createdAt, status: 'pending' })
+    } catch (error) {
+      if (db.isTransaction) db.exec('ROLLBACK')
+      throw error
+    }
   })
 
   const handleError: ErrorRequestHandler = (error, _req, res, _next) => {

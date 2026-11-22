@@ -24,7 +24,7 @@ test('all navigation and skip links resolve to page sections', () => {
 
 test('reservation form clearly disclaims real bookings', () => {
   assert.match(html, /Submitting does not create or confirm a booking/)
-  assert.match(html, /not verified availability/)
+  assert.match(html, /Availability can change/)
   assert.match(html, /only in memory/)
 })
 
