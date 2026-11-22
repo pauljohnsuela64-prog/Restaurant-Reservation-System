@@ -1,4 +1,5 @@
-﻿import express from 'express'
+﻿import { adminRouter } from './admin.ts'
+import express from 'express'
 import type { ErrorRequestHandler } from 'express'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
@@ -20,10 +21,10 @@ export function openDatabase(path: string) {
         ) STRICT;
         PRAGMA user_version = 1;
       `)
-    } else if (version !== 1 && version !== 2) {
+    } else if (version !== 1 && version !== 2 && version !== 3) {
       throw new Error('Unsupported reservation database schema')
     }
-    if (version !== 2) {
+    if (version === 0 || version === 1) {
       db.exec(`
         ALTER TABLE reservation_requests ADD COLUMN retry_key TEXT;
         CREATE UNIQUE INDEX request_retry ON reservation_requests(retry_key);
@@ -38,6 +39,16 @@ export function openDatabase(path: string) {
         PRAGMA user_version = 2;
       `)
     }
+    if (version !== 3) {
+      db.exec(`
+        CREATE TABLE admin_credentials (
+          id INTEGER PRIMARY KEY CHECK(id=1), salt BLOB NOT NULL, digest BLOB NOT NULL
+        ) STRICT;
+        CREATE TABLE admin_sessions (digest TEXT PRIMARY KEY, expires INTEGER NOT NULL) STRICT;
+        CREATE TABLE admin_login_window (id INTEGER PRIMARY KEY CHECK(id=1), attempts INTEGER NOT NULL, until_ms INTEGER NOT NULL) STRICT;
+        PRAGMA user_version=3;
+      `)
+    }
     db.exec('COMMIT')
     return db
   } catch (error) {
@@ -50,6 +61,7 @@ export function createApi(db: DatabaseSync, clock = () => new Date()) {
   const app = express()
   app.disable('x-powered-by')
   app.use(express.json({ limit: '4kb' }))
+  app.use('/api/admin', adminRouter(db, clock))
   app.get('/api/health', (_req, res) => {
     db.prepare('SELECT 1').get()
     res.json({ status: 'ok' })

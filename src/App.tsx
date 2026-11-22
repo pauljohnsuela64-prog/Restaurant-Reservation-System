@@ -3,7 +3,10 @@ import { ReservationForm } from './components/ReservationForm'
 import { formatTime, openingHours } from './reservations'
 import './App.css'
 
+import { Admin } from './components/Admin'
+
 function App() {
+  if (typeof window !== 'undefined' && /^\/admin\/?$/.test(window.location.pathname)) return <Admin />
   return <>
     <a className="skip-link" href="#main">Skip to content</a>
     <div className="demo-banner">Demo restaurant · Fictional name, menu, location, and opening hours</div>

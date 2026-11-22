@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vite build --ssr src/App.tsx --outDir node_modules/.tmp/homepage-test && node --test tests/*.test.mjs",
     "typecheck": "tsc -b",
+    "setup:admin": "node server/setup-admin.ts",
     "dev:api": "node --watch server/main.ts",
     "start:api": "node server/main.ts"
   },

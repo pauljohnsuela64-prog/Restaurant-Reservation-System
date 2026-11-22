@@ -454,3 +454,10 @@ input,select {
 
 
 
+
+.admin-page { max-width: 72rem; margin: auto; padding: clamp(1.25rem, 5vw, 4rem); }
+.admin-page h1 { margin-top: 2rem; }
+.admin-page section { margin-top: 3rem; }
+.admin-login { display: grid; gap: 1.5rem; max-width: 28rem; }
+.admin-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); }
+.admin-grid article { background: #fffdf7; overflow-wrap: anywhere; }
