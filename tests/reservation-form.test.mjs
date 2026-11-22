@@ -153,7 +153,11 @@ test('explicit send handles an unavailable API, suppresses repeat clicks and sho
   assert.ok(keys[0])
   assert.equal(keys[0], keys[1])
   complete(new Response(JSON.stringify({ id: 'demo-reference', status: 'pending' }), { status: 201 }))
-  assert.match((await screen.findByText(/Request received/)).textContent, /No table has been booked or confirmed/)
+  const receipt = await screen.findByText(/Request received/)
+  assert.match(receipt.textContent, /No table has been booked or confirmed/)
+  assert.equal(document.activeElement, receipt)
+  await user.click(screen.getByRole('button', { name: 'Start another request' }))
+  assert.equal(document.activeElement, screen.getByLabelText('Customer name'))
   assert.equal(screen.queryByText('demo@example.com'), null)
 })
 

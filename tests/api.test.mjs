@@ -38,6 +38,8 @@ test('HTTP rejects invalid data and stores normalized requests across database r
     now.setUTCFullYear(2030)
     const first = await post(JSON.stringify(valid))
     assert.equal(first.status, 201)
+    assert.equal(first.headers.get('Cache-Control'), 'no-store')
+    assert.equal((await post('{')).headers.get('Cache-Control'), 'no-store')
     const receipt = await first.json()
     assert.deepEqual(Object.keys(receipt).sort(), ['createdAt', 'id', 'status'])
     assert.equal(receipt.createdAt, now.toISOString())

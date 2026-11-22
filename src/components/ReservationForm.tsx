@@ -63,6 +63,7 @@ export function ReservationForm() {
       }
       const result = await response.json()
       if (response.status !== 201 || typeof result.id !== 'string' || result.status !== 'pending') throw new Error()
+      retry.current = { body: '', key: '' }
       setReceipt(result.id)
       setDetails(emptyDetails)
     } catch {
@@ -73,19 +74,22 @@ export function ReservationForm() {
     }
   }
   const nameRef = useRef<HTMLInputElement>(null)
+  const receiptRef = useRef<HTMLParagraphElement>(null)
   const reviewRef = useRef<HTMLHeadingElement>(null)
   const hasReviewed = useRef(false)
   const current = lookup && result?.query === query ? result : undefined
   const choices = current?.times ?? []
 
   useEffect(() => {
-    if (reviewing) {
+    if (receipt) {
+      receiptRef.current?.focus()
+    } else if (reviewing) {
       hasReviewed.current = true
       reviewRef.current?.focus()
     } else if (hasReviewed.current) {
       nameRef.current?.focus()
     }
-  }, [reviewing])
+  }, [receipt, reviewing])
 
   function fieldProps(field: keyof ReservationDetails) {
     const id = `reservation-${field}`
@@ -113,7 +117,8 @@ export function ReservationForm() {
     setErrors(nextErrors)
     const firstError = Object.keys(nextErrors)[0]
     if (firstError) {
-      const control = event.currentTarget.elements.namedItem(firstError)
+      const field = firstError === 'time' && !choices.length ? 'date' : firstError
+      const control = event.currentTarget.elements.namedItem(field)
       if (control instanceof HTMLElement) control.focus()
       return
     }
@@ -150,7 +155,7 @@ export function ReservationForm() {
         <p id="reservation-note">Use fictional details. Reviewing keeps details only in memory. Sending a request saves them to the local demo database.</p>
         {receipt ? (
           <div>
-            <p role="status">Request received. Its status is pending. No table has been booked or confirmed. Reference: {receipt}</p>
+            <p role="status" tabIndex={-1} ref={receiptRef}>Request received. Its status is pending. No table has been booked or confirmed. Reference: {receipt}</p>
             <button className="button" type="button" onClick={() => { setReceipt(''); clear() }}>Start another request</button>
           </div>
         ) : reviewing ? (

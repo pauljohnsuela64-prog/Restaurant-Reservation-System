@@ -22,6 +22,11 @@ test('admin HTTP lifecycle protects bookings, confirms atomically and revokes ac
     headers: { cookie, Origin: 'http://localhost:5173', 'Content-Type': 'application/json', 'X-Admin-Action': '1', ...headers },
   })
   const login = () => post('login', { password })
+  const malformed = await fetch(base + 'login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{',
+  })
+  assert.equal(malformed.status, 400)
+  assert.equal(malformed.headers.get('Cache-Control'), 'no-store')
   assert.equal((await get()).status, 401)
   assert.equal((await post('requests/a/cancel')).status, 401)
   assert.equal((await post('requests/a/confirm')).status, 401)
