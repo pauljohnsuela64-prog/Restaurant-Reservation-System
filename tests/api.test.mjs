@@ -23,6 +23,19 @@ test('HTTP rejects invalid data and stores normalized requests across database r
     for (const input of ['{', '{}', ...[{ date: '2029-12-31' }, { date: '2030-01-07' }, { guests: '2' }, { email: 'bad' }, { time: '22:00' }].map(patch => JSON.stringify({ ...valid, ...patch }))]) {
       assert.equal((await post(input)).status, 400)
     }
+    const lookup = query => fetch(base + '/api/availability?' + query)
+    for (const query of ['date=2030-02-30&guests=2', 'date=2029-12-31&guests=1', 'date=2030-01-01&guests=9', 'date=2030-01-01', 'guests=2']) {
+      assert.equal((await lookup(query)).status, 400)
+    }
+    const snapshot = await lookup('date=2030-01-01&guests=8')
+    assert.equal(snapshot.headers.get('Cache-Control'), 'no-store')
+    assert.deepEqual(await snapshot.json(), { times: ['17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30','21:00'] })
+    const keyed = body => fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'demo-key' }, body: JSON.stringify(body) })
+    const original = await (await keyed(valid)).json()
+    now.setUTCFullYear(2031)
+    assert.deepEqual(await (await keyed(valid)).json(), original)
+    assert.equal((await keyed({ ...valid, guests: 3 })).status, 409)
+    now.setUTCFullYear(2030)
     const first = await post(JSON.stringify(valid))
     assert.equal(first.status, 201)
     const receipt = await first.json()
@@ -37,7 +50,7 @@ test('HTTP rejects invalid data and stores normalized requests across database r
     assert.equal(row.name, "O'Connor")
     assert.equal(row.email, 'demo@example.com')
     assert.equal(row.status, 'pending')
-    assert.equal(db.prepare('SELECT COUNT(*) AS total FROM reservation_requests').get().total, 2)
+    assert.equal(db.prepare('SELECT COUNT(*) AS total FROM reservation_requests').get().total, 3)
   } finally {
     if (server.listening) await new Promise(resolve => server.close(resolve))
     db.close()

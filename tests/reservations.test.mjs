@@ -19,12 +19,12 @@ test('date parsing rejects impossible dates and preserves valid leap days withou
 
 test('every weekday follows the published hours and excludes closing time', () => {
   const cases = [
-    ['2030-01-01', '17:00', '21:30', 10],
-    ['2030-01-02', '17:00', '21:30', 10],
-    ['2030-01-03', '17:00', '21:30', 10],
-    ['2030-01-04', '12:00', '22:30', 22],
-    ['2030-01-05', '12:00', '22:30', 22],
-    ['2030-01-06', '12:00', '20:30', 18],
+    ['2030-01-01', '17:00', '21:00', 9],
+    ['2030-01-02', '17:00', '21:00', 9],
+    ['2030-01-03', '17:00', '21:00', 9],
+    ['2030-01-04', '12:00', '22:00', 21],
+    ['2030-01-05', '12:00', '22:00', 21],
+    ['2030-01-06', '12:00', '20:00', 17],
   ]
   for (const [date, first, last, count] of cases) {
     const times = timeChoices(date, now)

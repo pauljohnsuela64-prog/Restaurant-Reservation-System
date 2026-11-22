@@ -2,9 +2,18 @@ import './setup-dom.mjs'
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 import { createElement } from 'react'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, waitFor, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../node_modules/.tmp/homepage-test/App.js'
+
+import { timeChoices } from '../src/reservations.ts'
+
+async function lookup(url) {
+  const query = new URL(url, 'http://localhost')
+  assert.equal(query.pathname, '/api/availability')
+  assert.deepEqual([...query.searchParams.keys()], ['date', 'guests'])
+  return Response.json({ times: timeChoices(query.searchParams.get('date')) })
+}
 
 afterEach(cleanup)
 
@@ -48,14 +57,16 @@ test('rejects whitespace names, malformed email and a past date without navigati
   assert.equal(screen.queryByRole('heading', { name: 'Review your details' }), null)
 })
 
-test('time choices follow the hours, close on Monday, and reset after date changes', async () => {
+test('time choices follow the hours, close on Monday, and reset after date changes', async context => {
+  context.mock.method(globalThis, 'fetch', lookup)
   const user = userEvent.setup()
   render(createElement(App))
   const time = screen.getByLabelText('Time')
   assert.equal(time.disabled, true)
-  const cases = [[2, '17:00', '21:30', 10], [5, '12:00', '22:30', 22], [6, '12:00', '22:30', 22], [0, '12:00', '20:30', 18]]
+  const cases = [[2, '17:00', '21:00', 9], [5, '12:00', '22:00', 21], [6, '12:00', '22:00', 21], [0, '12:00', '20:00', 17]]
   for (const [day, first, last, count] of cases) {
     selectDate(futureDate(day))
+    await waitFor(() => assert.equal(time.disabled, false))
     const options = within(time).getAllByRole('option').filter(option => option.value)
     assert.equal(options[0].value, first)
     assert.equal(options.at(-1).value, last)
@@ -72,7 +83,7 @@ test('time choices follow the hours, close on Monday, and reset after date chang
 })
 
 test('valid details show an unconfirmed review, can be edited, and can be cleared', async (context) => {
-  context.mock.method(globalThis, 'fetch', () => { throw new Error('Customer details must not be transmitted') })
+  context.mock.method(globalThis, 'fetch', lookup)
   context.mock.method(window.Storage.prototype, 'setItem', () => { throw new Error('Customer details must not be persisted') })
   const user = userEvent.setup()
   const { unmount } = render(createElement(App))
@@ -80,6 +91,7 @@ test('valid details show an unconfirmed review, can be edited, and can be cleare
   await user.type(screen.getByLabelText('Email'), 'ada@example.com')
   await user.selectOptions(screen.getByLabelText('Guests'), '4')
   selectDate(futureDate(2))
+  await screen.findByRole('option', { name: '5:30 pm' })
   await user.selectOptions(screen.getByLabelText('Time'), '17:30')
   await user.click(screen.getByRole('button', { name: 'Review details' }))
   const heading = screen.getByRole('heading', { name: 'Review your details' })
@@ -116,7 +128,11 @@ test('explicit send handles an unavailable API, suppresses repeat clicks and sho
   const user = userEvent.setup()
   let complete
   let attempts = 0
-  const request = context.mock.method(globalThis, 'fetch', async () => {
+  const keys = []
+  context.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.startsWith('/api/availability?')) return lookup(url)
+    keys.push(options.headers['Idempotency-Key'])
+    assert.equal(JSON.parse(options.body).guests, 2)
     if (++attempts === 1) throw new TypeError('offline')
     return new Promise(resolve => { complete = resolve })
   })
@@ -124,17 +140,36 @@ test('explicit send handles an unavailable API, suppresses repeat clicks and sho
   await user.type(screen.getByLabelText('Customer name'), 'Demo Guest')
   await user.type(screen.getByLabelText('Email'), 'demo@example.com')
   selectDate(futureDate(2))
+  await screen.findByRole('option', { name: '5:30 pm' })
   await user.selectOptions(screen.getByLabelText('Time'), '17:30')
   await user.click(screen.getByRole('button', { name: 'Review details' }))
   const send = screen.getByRole('button', { name: 'Send reservation request' })
-  assert.equal(request.mock.callCount(), 0)
+  assert.equal(attempts, 0)
   await user.click(send)
   assert.match((await screen.findByRole('alert')).textContent, /Could not verify receipt/)
   await user.dblClick(send)
-  assert.equal(request.mock.callCount(), 2)
+  assert.equal(attempts, 2)
   assert.equal(send.disabled, true)
-  assert.equal(JSON.parse(request.mock.calls[1].arguments[1].body).guests, 2)
+  assert.ok(keys[0])
+  assert.equal(keys[0], keys[1])
   complete(new Response(JSON.stringify({ id: 'demo-reference', status: 'pending' }), { status: 201 }))
   assert.match((await screen.findByText(/Request received/)).textContent, /No table has been booked or confirmed/)
   assert.equal(screen.queryByText('demo@example.com'), null)
+})
+
+test('lookup failure supports retry and ignores a response for the previous party size', async context => {
+  const user = userEvent.setup()
+  const replies = []
+  context.mock.method(globalThis, 'fetch', () => new Promise(resolve => replies.push(resolve)))
+  render(createElement(App))
+  selectDate(futureDate(2))
+  assert.ok(screen.getByText('Checking availability...'))
+  await user.selectOptions(screen.getByLabelText('Guests'), '8')
+  replies[1](new Response(null, { status: 503 }))
+  await user.click(await screen.findByRole('button', { name: 'Retry availability' }))
+  replies[2](Response.json({ times: ['18:00'] }))
+  await screen.findByRole('option', { name: '6 pm' })
+  replies[0](Response.json({ times: ['17:00'] }))
+  await user.selectOptions(screen.getByLabelText('Time'), '18:00')
+  assert.equal(screen.queryByRole('option', { name: '5 pm' }), null)
 })

@@ -41,6 +41,8 @@ export function formatTime(value: string) {
   return `${hour % 12 || 12}${minute ? `:${String(minute).padStart(2, '0')}` : ''} ${hour >= 12 ? 'pm' : 'am'}`
 }
 
+export const reservationMinutes = 60
+
 export function timeChoices(value: string, now = new Date()) {
   const date = parseLocalDate(value)
   const today = restaurantDateTime(now)
@@ -48,7 +50,7 @@ export function timeChoices(value: string, now = new Date()) {
   const hours = openingHours.find(row => row.days.includes(date.getUTCDay()))
   if (hours?.opens == null || hours.closes == null) return []
   const choices: string[] = []
-  for (let minute = hours.opens * 60; minute < hours.closes * 60; minute += 30) {
+  for (let minute = hours.opens * 60; minute + reservationMinutes <= hours.closes * 60; minute += 30) {
     if (value === today.day && minute <= today.minute) continue
     choices.push(`${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`)
   }
@@ -67,9 +69,9 @@ export function validateReservation(details: ReservationDetails, now = new Date(
   if (!date) errors.date = 'Choose a valid date.'
   else if (details.date < localDateString(now)) errors.date = 'Choose today or a future date.'
   else if (date.getUTCDay() === 1) errors.date = 'Closed on Mondays. Choose another date.'
-  else if (!timeChoices(details.date, now).length) errors.date = 'No illustrative times remain. Choose another date.'
+  else if (!timeChoices(details.date, now).length) errors.date = 'No times remain. Choose another date.'
   if (!timeChoices(details.date, now).includes(details.time)) {
-    errors.time = 'Choose a future illustrative time within the sample opening hours.'
+    errors.time = 'Choose a future time within the sample opening hours.'
   }
   return errors
 }
