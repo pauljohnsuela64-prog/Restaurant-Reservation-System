@@ -8,7 +8,7 @@ import { bootstrapAdmin } from './admin.ts'
 async function setup() {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Run setup in an interactive terminal.')
   const path = resolve(process.env.RESERVATION_DB ?? 'data/reservations.sqlite')
-  mkdirSync(dirname(path), { recursive: true })
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
   const db = openDatabase(path)
   try {
     if (db.prepare('SELECT 1 FROM admin_credentials').get()) throw new Error('An administrator already exists.')

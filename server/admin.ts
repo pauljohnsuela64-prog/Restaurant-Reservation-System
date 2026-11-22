@@ -31,7 +31,6 @@ function tokenHash(value: string) {
 export function adminRouter(db: DatabaseSync, clock: () => Date) {
   const router = Router()
   router.use((req, res, next) => {
-    res.set('Cache-Control', 'no-store')
     // Browser scripts on other origins cannot set this header without a successful CORS preflight.
     if (req.method === 'POST' && (!origins.has(req.get('Origin') ?? '') || req.get('X-Admin-Action') !== '1')) {
       res.sendStatus(403)

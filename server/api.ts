@@ -66,6 +66,11 @@ export function openDatabase(path: string) {
 export function createApi(db: DatabaseSync, clock = () => new Date()) {
   const app = express()
   app.disable('x-powered-by')
+  // Apply before parsing so error responses receive the same policy.
+  app.use(['/api/admin', '/api/reservation-requests'], (_req, res, next) => {
+    res.set('Cache-Control', 'no-store')
+    next()
+  })
   app.use(express.json({ limit: '4kb' }))
   app.use('/api/admin', adminRouter(db, clock))
   app.get('/api/health', (_req, res) => {

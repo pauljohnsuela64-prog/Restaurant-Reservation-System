@@ -9,13 +9,17 @@ type Booking = {
 
 function post(path: string, body?: object) {
   return fetch('/api/admin/' + path, {
-    method: 'POST', headers: { 'X-Admin-Action': '1', 'Content-Type': 'application/json' },
+    method: 'POST', signal: AbortSignal.timeout(10000), headers: { 'X-Admin-Action': '1', 'Content-Type': 'application/json' },
     body: body && JSON.stringify(body),
   })
 }
 
 async function fetchBookings(signal?: AbortSignal, query = ''): Promise<Booking[] | null> {
-  const response = await fetch('/api/admin/requests' + query, { signal, cache: 'no-store' })
+  const timeout = AbortSignal.timeout(10000)
+  const response = await fetch('/api/admin/requests' + query, {
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    cache: 'no-store',
+  })
   if (response.status === 401) return null
   if (!response.ok) throw new Error()
   return response.json()
@@ -30,6 +34,13 @@ export function Admin() {
   const dialog = useRef<HTMLDialogElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const [target, setTarget] = useState<Booking | null>(null)
+
+  const signedIn = rows !== null
+  const wasSignedIn = useRef(false)
+  useEffect(() => {
+    if (wasSignedIn.current !== signedIn) heading.current?.focus()
+    wasSignedIn.current = signedIn
+  }, [signedIn])
 
   async function load(nextQuery = query) {
     setRows(await fetchBookings(undefined, nextQuery))
@@ -59,7 +70,7 @@ export function Admin() {
     setBusy(true)
     setMessage('')
     try { await work() }
-    catch { setMessage('Could not verify the result. Refresh to check the current status.') }
+    catch { setMessage('Could not verify the result. Check the local API connection, then try again.') }
     finally { setBusy(false) }
   }
 
@@ -147,7 +158,7 @@ export function Admin() {
           {row.tableId !== null && <p>Table {row.tableId} ? Seats {row.capacity}</p>}
           {row.cancelledAt && <p>Cancelled <time dateTime={row.cancelledAt}>{row.cancelledAt}</time> (UTC)</p>}
           <div className="form-actions">
-            {status === 'pending' && <button disabled={busy} className="button" onClick={() => confirm(row.id)}>Confirm table</button>}
+            {status === 'pending' && <button disabled={busy} className="button" onClick={() => { heading.current?.focus(); confirm(row.id) }}>Confirm table</button>}
             {status !== 'cancelled' && <button disabled={busy} className="secondary-button" onClick={() => {
               setTarget(row)
               dialog.current?.showModal()
