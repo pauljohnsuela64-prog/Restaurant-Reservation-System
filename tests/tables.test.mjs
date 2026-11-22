@@ -28,7 +28,7 @@ test('upgrade preserves pending rows and competing processes can confirm only on
   try {
     const now = new Date('2030-01-01T00:00Z')
     const times = guests => availability(db, '2030-01-01', guests, now)
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 2)
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 3)
     assert.equal(db.prepare("SELECT count(*) AS n FROM reservation_requests WHERE created_at='original' AND status='pending'").get().n, 2)
     assert.ok(times(8).includes('17:30'))
     const contenders = ['a', 'b'].map(id => fork(new URL('./fixtures/confirm.mjs', import.meta.url), [path, id]))
