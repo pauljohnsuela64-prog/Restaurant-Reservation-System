@@ -1,4 +1,4 @@
-﻿# Restaurant Reservation System — Phase 5
+﻿# Restaurant Reservation System — Phase 6
 
 Ember & Olive is a fictional restaurant. Use sample customer details. The form shows live availability and saves pending requests. A time shown, a review, and a receipt each leave the table available for confirmation.
 
@@ -19,7 +19,7 @@ SQLite defaults to data/reservations.sqlite. Set RESERVATION_DB to use another f
 
 - `GET /api/health` checks SQLite. `POST /api/reservation-requests` accepts JSON with name, email, numeric guests, date and time. Success returns 201 with id, createdAt (UTC) and pending status. Invalid fields return 400, unsupported content types 415 and oversized JSON 413.
 - The form sends a random Idempotency-Key on explicit submission. Repeating the key and normalized details returns the original receipt, even after the requested time passes. Changed details with the same key return 409. Phase 3 clients can omit the header, in which case each POST creates a new request. Retry from the same open form after an uncertain response. Reloading clears its in-memory key.
-- Back up the database with the API stopped before upgrading. Startup upgrades earlier databases transactionally. Version 2 introduced table inventory, assignments and retry keys. Version 3 adds credentials, sessions and a shared login-attempt counter, preserving reservations and assignments. Unknown versions are rejected. To roll back, stop the API, keep a private copy of the upgraded file and restore the matching pre-upgrade backup with the prior code.
+- Back up the database with the API stopped before upgrading. Startup upgrades earlier databases transactionally. Version 2 introduced table inventory, assignments and retry keys. Version 3 adds credentials, sessions and a shared login-attempt counter, preserving reservations and assignments. Version 4 adds a nullable UTC cancellation timestamp. Existing requests, assignments, credentials and sessions carry over. Unknown versions are rejected. To roll back, stop the API, keep a private copy of the upgraded file and restore the matching pre-upgrade backup with the prior code.
 
 ## Local administrator
 
@@ -38,8 +38,9 @@ All endpoints below are under `/api/admin`. Responses disable caching. Every POS
 | Method and path | Result |
 | --- | --- |
 | POST /login | JSON body with password. Returns 204 and sets the session cookie, 401 for invalid credentials, or 429 during lockout. |
-| GET /requests | Authenticated list ordered by Manila date and time, with customer name, email, party size, request status and assigned table ID and capacity. |
+| GET /requests | Optional status (pending, confirmed, cancelled) and q (literal name, email or reference substring, up to 254 characters). Authenticated list ordered by Manila date and time, with customer name, email, party size, request status and assigned table ID and capacity. |
 | POST /requests/:id/confirm | Returns the confirmed table, including on repeat. Returns 404 for an unknown request and 409 for an elapsed time or capacity conflict. |
+| POST /requests/:id/cancel | Cancels a pending or confirmed request and returns status and cancelledAt (UTC). A retry returns the original timestamp. Unknown references return 404. |
 | POST /logout | Revokes the session, clears the cookie and returns 204. |
 
 Missing or expired sessions return 401 on protected routes. Disallowed writes return 403. This local single-admin workflow assumes a trusted machine; it provides no multi-user roles or deployment configuration.
@@ -60,3 +61,13 @@ Run `npm.cmd run lint`, `npm.cmd test`, `npm.cmd run typecheck`, `npm.cmd run bu
 7. Bootstrap the administrator and visit /admin in a fresh private window. Verify the sign-in page and that /api/admin/requests returns 401 before login. Sign in with the passphrase.
 8. Submit two fictional eight-person requests for the same future time. On phone and desktop widths, keyboard through the dashboard and confirm one. Verify the assigned table seats eight, the second request reports a conflict, and the public availability lookup removes the occupied time.
 9. Refresh the dashboard and verify the confirmed table persists. Sign out, reload /admin and verify customer details are inaccessible. In a separate session verify expiration after one hour.
+
+
+### Cancellation acceptance
+
+1. Sign in using the local administrator setup above. Apply a status filter and search by fictional customer name, email, or request reference. Clear both fields and apply again to restore the full list.
+2. Open the cancellation dialog on a pending request. Use Escape or Keep reservation and verify no change. Reopen and confirm. Verify the request appears under Cancelled with a UTC timestamp and no confirmation action.
+3. Confirm an eight-person request, then cancel it. Verify the released time reappears in the public form. Repeat the cancellation and verify the timestamp stays the same. A subsequent confirmation attempt returns 409.
+4. Verify cancellation returns 401 without an admin session and 403 when the origin or action header fails validation.
+
+A cancellation timestamp takes precedence over the active assignment when displaying status. SQLite records the cancellation and deletes its assignment together under a write lock shared by confirmation. Public receipts continue to describe the original submission. Search terms are sent only to the protected admin endpoint. Keep request URL logging disabled because search terms may contain customer data. SQLite's built-in case folding covers ASCII.

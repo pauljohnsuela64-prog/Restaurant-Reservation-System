@@ -461,3 +461,7 @@ input,select {
 .admin-login { display: grid; gap: 1.5rem; max-width: 28rem; }
 .admin-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); }
 .admin-grid article { background: #fffdf7; overflow-wrap: anywhere; }
+
+.admin-filters { margin-top: 1.5rem; align-items: end; }
+.admin-page dialog { width: min(90vw, 32rem); border: 1px solid var(--line); padding: 1.5rem; background: #faf7ef; color: inherit; }
+.admin-page dialog::backdrop { background: #263c30a6; }

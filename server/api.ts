@@ -21,7 +21,7 @@ export function openDatabase(path: string) {
         ) STRICT;
         PRAGMA user_version = 1;
       `)
-    } else if (version !== 1 && version !== 2 && version !== 3) {
+    } else if (version !== 1 && version !== 2 && version !== 3 && version !== 4) {
       throw new Error('Unsupported reservation database schema')
     }
     if (version === 0 || version === 1) {
@@ -39,7 +39,7 @@ export function openDatabase(path: string) {
         PRAGMA user_version = 2;
       `)
     }
-    if (version !== 3) {
+    if (version === 0 || version === 1 || version === 2) {
       db.exec(`
         CREATE TABLE admin_credentials (
           id INTEGER PRIMARY KEY CHECK(id=1), salt BLOB NOT NULL, digest BLOB NOT NULL
@@ -47,6 +47,12 @@ export function openDatabase(path: string) {
         CREATE TABLE admin_sessions (digest TEXT PRIMARY KEY, expires INTEGER NOT NULL) STRICT;
         CREATE TABLE admin_login_window (id INTEGER PRIMARY KEY CHECK(id=1), attempts INTEGER NOT NULL, until_ms INTEGER NOT NULL) STRICT;
         PRAGMA user_version=3;
+      `)
+    }
+    if (version !== 4) {
+      db.exec(`
+        ALTER TABLE reservation_requests ADD COLUMN cancelled_at TEXT;
+        PRAGMA user_version=4;
       `)
     }
     db.exec('COMMIT')
